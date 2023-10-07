@@ -994,7 +994,7 @@ namespace diskann {
       const T *query1, const _u64 k_search, const _u64 l_search, _s64 *indices,
       float *distances, const _u64 beam_width, const bool use_reorder_data,
       QueryStats *stats, const knowhere::feder::diskann::FederResultUniq &feder,
-      knowhere::BitsetView bitset_view, const float filter_ratio_in, const bool for_tuning) {
+      knowhere::BitsetView bitset_view, const float filter_ratio_in, const bool for_tuning, float alpha) {
     if (beam_width > MAX_N_SECTOR_READS)
       throw ANNException("Beamwidth can not be higher than MAX_N_SECTOR_READS",
                          -1, __FUNCSIG__, __FILE__, __LINE__);
@@ -1015,8 +1015,8 @@ namespace diskann {
     auto  ctx = this->reader->get_ctx();
 
     if (!bitset_view.empty()) {
-      const auto filter_threshold =
-          filter_ratio_in < 0 ? calcFilterThreshold(k_search) : filter_ratio_in;
+      const auto filter_threshold = 0.95f;
+          // filter_ratio_in < 0 ? calcFilterThreshold(k_search) : filter_ratio_in;
       const auto bv_cnt = bitset_view.count();
       if (bitset_view.size() == bv_cnt) {
         for (_u64 i = 0; i < k_search; i++) {
@@ -1115,6 +1115,7 @@ namespace diskann {
     unsigned hops = 0;
     unsigned num_ios = 0;
     unsigned k = 0;
+    float accumulative_alpha = 0;
 
     while (k < cur_list_size) {
       auto nk = cur_list_size;
@@ -1222,17 +1223,36 @@ namespace diskann {
         _u64      nnbrs = cached_nhood.second.first;
         unsigned *node_nbrs = cached_nhood.second.second;
 
+        std::vector<unsigned> filtered_nbrs;
+        filtered_nbrs.reserve(nnbrs);
+        for (_u64 m = 0; m < nnbrs; ++m) {
+          unsigned id = node_nbrs[m];
+          if (visited.find(id) != visited.end()) {
+            continue;
+          }
+          visited.insert(id);
+          if (bitset_view.test(id)) {
+            accumulative_alpha += 0.2f;
+            if (accumulative_alpha < 1.0f) {
+              continue;
+            }
+            accumulative_alpha -= 1.0f;
+          }
+          cmps++;
+          filtered_nbrs.push_back(id);
+        }
+
         // compute node_nbrs <-> query dists in PQ space
         cpu_timer.reset();
-        compute_dists(node_nbrs, nnbrs, dist_scratch);
+        compute_dists(filtered_nbrs.data(), filtered_nbrs.size(), dist_scratch);
         if (stats != nullptr) {
-          stats->n_cmps += (double) nnbrs;
+          stats->n_cmps += (double) filtered_nbrs.size();
           stats->cpu_us += (double) cpu_timer.elapsed();
         }
 
         // process prefetched nhood
-        for (_u64 m = 0; m < nnbrs; ++m) {
-          unsigned id = node_nbrs[m];
+        for (_u64 m = 0; m < filtered_nbrs.size(); ++m) {
+          unsigned id = filtered_nbrs[m];
 
           // add neighbor info into feder result
           if (feder != nullptr) {
@@ -1241,11 +1261,6 @@ namespace diskann {
             feder->id_set_.insert(id);
           }
 
-          if (visited.find(id) != visited.end()) {
-            continue;
-          } else {
-            visited.insert(id);
-            cmps++;
             float dist = dist_scratch[m];
             if (cur_list_size > 0 &&
                 dist >= retset[cur_list_size - 1].distance &&
@@ -1260,7 +1275,6 @@ namespace diskann {
               // nk logs the best position in the retset that was
               // updated due to neighbors of n.
               nk = r;
-          }
         }
       }
 #ifdef USE_BING_INFRA
@@ -1315,16 +1329,36 @@ namespace diskann {
         unsigned *node_nbrs = (node_buf + 1);
         // compute node_nbrs <-> query dist in PQ space
         cpu_timer.reset();
-        compute_dists(node_nbrs, nnbrs, dist_scratch);
+
+        std::vector<unsigned> filtered_nbrs;
+        filtered_nbrs.reserve(nnbrs);
+        for (_u64 m = 0; m < nnbrs; ++m) {
+          unsigned id = node_nbrs[m];
+          if (visited.find(id) != visited.end()) {
+            continue;
+          }
+          visited.insert(id);
+          if (bitset_view.test(id)) {
+            accumulative_alpha += 0.2f;
+            if (accumulative_alpha < 1.0f) {
+              continue;
+            }
+            accumulative_alpha -= 1.0f;
+          }
+          cmps++;
+          filtered_nbrs.push_back(id);
+        }
+
+        compute_dists(filtered_nbrs.data(), filtered_nbrs.size(), dist_scratch);
         if (stats != nullptr) {
-          stats->n_cmps += (double) nnbrs;
+          stats->n_cmps += (double) filtered_nbrs.size();
           stats->cpu_us += (double) cpu_timer.elapsed();
         }
 
         cpu_timer.reset();
         // process prefetch-ed nhood
-        for (_u64 m = 0; m < nnbrs; ++m) {
-          unsigned id = node_nbrs[m];
+        for (_u64 m = 0; m < filtered_nbrs.size(); ++m) {
+          unsigned id = filtered_nbrs[m];
 
           // add neighbor info into feder result
           if (feder != nullptr) {
@@ -1333,10 +1367,6 @@ namespace diskann {
             feder->id_set_.insert(frontier_nhood.first);
           }
 
-          if (visited.find(id) != visited.end()) {
-            continue;
-          } else {
-            visited.insert(id);
             cmps++;
             float dist = dist_scratch[m];
             if (stats != nullptr) {
@@ -1355,7 +1385,6 @@ namespace diskann {
             if (r < nk)
               nk = r;  // nk logs the best position in the retset that was
                        // updated due to neighbors of n.
-          }
         }
 
         if (stats != nullptr) {
