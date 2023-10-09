@@ -517,6 +517,7 @@ DiskANNIndexNode<T>::Search(const DataSet& dataset, const Config& cfg, const Bit
         LOG_KNOWHERE_ERROR_ << "Failed to load diskann.";
         return expected<DataSetPtr>::Err(Status::empty_index, "DiskANN not loaded");
     }
+    float alpha = 1.0f * (static_cast<const IvfFlatConfig&>(cfg).nlist.value() - 1) / 1000;
 
     auto search_conf = static_cast<const DiskANNConfig&>(cfg);
     if (!CheckMetric(search_conf.metric_type.value())) {
@@ -561,7 +562,7 @@ DiskANNIndexNode<T>::Search(const DataSet& dataset, const Config& cfg, const Bit
         futures.emplace_back(search_pool_->push([&, index = row]() {
             pq_flash_index_->cached_beam_search(xq + (index * dim), k, lsearch, p_id + (index * k),
                                                 p_dist + (index * k), beamwidth, false, nullptr, feder_result, bitset,
-                                                filter_ratio, for_tuning);
+                                                filter_ratio, for_tuning, alpha);
         }));
     }
     for (auto& future : futures) {
