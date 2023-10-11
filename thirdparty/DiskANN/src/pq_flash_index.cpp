@@ -995,7 +995,7 @@ namespace diskann {
       float *distances, const _u64 beam_width, const bool use_reorder_data,
       QueryStats *stats, const knowhere::feder::diskann::FederResultUniq &feder,
       knowhere::BitsetView bitset_view, const float filter_ratio_in, const bool for_tuning) {
-      const float alpha = 0.15f;
+    const float alpha = 0.0f;
     if (beam_width > MAX_N_SECTOR_READS)
       throw ANNException("Beamwidth can not be higher than MAX_N_SECTOR_READS",
                          -1, __FUNCSIG__, __FILE__, __LINE__);
