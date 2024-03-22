@@ -109,7 +109,7 @@ ConvertIVFFlat(const BinarySet& binset, const MetricType metric_type, const uint
 
 bool
 UseDiskLoad(const std::string& index_type, const int32_t& /*version*/) {
-    return !index_type.compare(IndexEnum::INDEX_DISKANN);
+    return true;
 }
 
 }  // namespace knowhere
