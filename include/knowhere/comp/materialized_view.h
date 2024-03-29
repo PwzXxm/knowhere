@@ -17,6 +17,11 @@
 #include <unordered_map>
 
 namespace knowhere {
+
+const std::string kMvFieldIdToTouchedCategoriesCntKey = "field_id_to_touched_categories_cnt";
+const std::string kMvIsPureAndKey = "is_pure_and";
+const std::string kMvHasNotKey = "has_not";
+
 // MaterializedViewSearchInfo is used to store the search information when performing filtered search (i.e. Materialized
 // View - vectors and scalars).
 // This information is obtained from expression analysis only, not runtime, so might be inaccurate.
@@ -37,11 +42,33 @@ struct MaterializedViewSearchInfo {
 
 // DO NOT CALL THIS FUNCTION MANUALLY
 // use `json j = materialized_view_search_info`
-void
-to_json(nlohmann::json& j, const MaterializedViewSearchInfo& info);
+inline void
+to_json(nlohmann::json& j, const MaterializedViewSearchInfo& info) {
+    j = nlohmann::json{{kMvFieldIdToTouchedCategoriesCntKey, info.field_id_to_touched_categories_cnt},
+                       {kMvIsPureAndKey, info.is_pure_and},
+                       {kMvHasNotKey, info.has_not}};
+}
 
 // DO NOT CALL THIS FUNCTION MANUALLY
 // use `auto j = j.get<MaterializedViewSearchInfo>() or j[KEY]`
-void
-from_json(const nlohmann::json& j, MaterializedViewSearchInfo& info);
+inline void
+from_json(const nlohmann::json& j, MaterializedViewSearchInfo& info) {
+    if (j.is_null()) {
+        // When the json is null, we return the default value of struct MaterializedViewSearchInfo
+        // If `MaterializedViewSearchInfo = j[xxx]` is called, a default constructed MaterializedViewSearchInfo will
+        // be created. Therefore the second parameter `info` here should have default values.
+        return;
+    }
+
+    // if any of the keys is missing, the corresponding field in `info` will have default value
+    if (j.contains(kMvFieldIdToTouchedCategoriesCntKey)) {
+        j.at(kMvFieldIdToTouchedCategoriesCntKey).get_to(info.field_id_to_touched_categories_cnt);
+    }
+    if (j.contains(kMvIsPureAndKey)) {
+        j.at(kMvIsPureAndKey).get_to(info.is_pure_and);
+    }
+    if (j.contains(kMvHasNotKey)) {
+        j.at(kMvHasNotKey).get_to(info.has_not);
+    }
+}
 }  // namespace knowhere
